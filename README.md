@@ -45,8 +45,6 @@ import numpy as np
 import pandas as pd
 import scanpy as sc
 from pyarrow import parquet
-from torch.utils.data import DataLoader, random_split
-import torch
 from spiceist import process_tile, create_tiles  # Import from the installed package
 
 # Define paths (replace with actual paths)

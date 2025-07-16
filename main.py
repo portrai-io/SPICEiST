@@ -1,8 +1,6 @@
 import numpy as np
 import pandas as pd
 import scanpy as sc
-from torch.utils.data import DataLoader, random_split
-import torch
 from spiceist import process_tile  # Assuming the package is installed or in PYTHONPATH
 import os
 from pyarrow import parquet
