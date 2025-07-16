@@ -1,0 +1,12 @@
+numpy
+pandas
+scanpy
+torch
+torch_geometric
+scipy
+scikit-learn
+geopandas
+libpysal
+networkx
+scib
+pyarrow 

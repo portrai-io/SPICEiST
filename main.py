@@ -1,53 +1,12 @@
-# SPICEiST
-
-Graph autoencoder framework that integrates subcellular transcript distribution patterns with cell-level gene expression profiles for enhanced cell clustering in imaging-based ST.
-
-## Installation
-
-To install the package, navigate to the project root directory (where `setup.py` is located) and run:
-
-```bash
-pip install -e .
-```
-
-This will install the `spiceist` package in editable mode, allowing you to make changes to the source code without reinstalling.
-
-### Requirements
-
-The package depends on the following libraries (listed in `requirements.txt`):
-
-- numpy
-- pandas
-- scanpy
-- torch
-- torch_geometric
-- scipy
-- scikit-learn
-- geopandas
-- libpysal
-- networkx
-- scib
-- pyarrow
-
-You can install them using:
-
-```bash
-pip install -r requirements.txt
-```
-
-## Usage Example
-
-Below is an example script (`main.py`) that demonstrates how to load data, split transcripts into tiles, and process them using the `spiceist` package.
-
-```python
-import os
 import numpy as np
 import pandas as pd
 import scanpy as sc
-from pyarrow import parquet
 from torch.utils.data import DataLoader, random_split
 import torch
-from spiceist import process_tile, create_tiles  # Import from the installed package
+from spiceist import process_tile  # Assuming the package is installed or in PYTHONPATH
+import os
+from pyarrow import parquet
+from spiceist import create_tiles
 
 # Define paths (replace with actual paths)
 path = '/path/to/data'  # Example path
@@ -70,6 +29,13 @@ sc.pp.log1p(adata_cell_1)
 # Define hyperparameters
 alpha_list = [0.1, 0.5, 1.0]  # Example alphas
 resol_list = [0.3, 0.6, 0.9, 1.2, 1.5, 1.8]  # Resolutions
+mpp = 1.0  # Microns per pixel
+
+# For demonstration, assume data is loaded and proceed with one tile example
+# The following is based on the provided running code, integrated into process_tile usage
+
+# Note: process_tile expects specific column names; adapt DataFrame columns if necessary
+# For example, rename 'x_location' to 'x_global_px', 'feature_name' to 'target', etc.
 
 # Example loop
 results = []
@@ -87,4 +53,5 @@ for alpha in alpha_list:
 combined_results = pd.concat(results, ignore_index=True)
 combined_results.to_csv('./results_prime/metrics.csv', index=False)
 print('Processing complete.')
-```
+
+# The provided code snippet is integrated into process_tile; if custom adaptations are needed, modify train.py accordingly.
