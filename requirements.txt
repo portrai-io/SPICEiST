@@ -10,3 +10,4 @@ libpysal
 networkx
 scib
 pyarrow 
+louvain

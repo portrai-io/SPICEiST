@@ -5,8 +5,9 @@ import pandas as pd
 import scanpy as sc
 import torch
 import torch.nn.functional as F
-from torch.utils.data import DataLoader, random_split
+from torch.utils.data import random_split
 from torch_geometric.data import Data
+from torch_geometric.loader import DataLoader
 from sklearn.decomposition import PCA
 from scipy.sparse import coo_matrix
 from .models import GraphAutoencoder
@@ -40,6 +41,7 @@ def train_gae(graphs, alpha, output_dir, tile_id, batch_size=32, lr=1e-3, num_ep
     opt = optim.Adam(model.parameters(), lr=lr)
     best_val_loss = float("inf")
     epochs_without_improve = 0
+    print(f"Starting training for tile {tile_id} with alpha {alpha}")
     for epoch in range(1, num_epochs+1):
         model.train()
         total_train = 0.0
@@ -86,6 +88,7 @@ def train_gae(graphs, alpha, output_dir, tile_id, batch_size=32, lr=1e-3, num_ep
             _, zg = model(batch)
             all_embs.append(zg.cpu())
     X_emb = torch.cat(all_embs, dim=0).numpy()
+    print(f"Training complete for tile {tile_id}")
     return X_emb
 
 
@@ -122,11 +125,13 @@ def process_tile(df_trans, adata_cell_1, alpha, tile_id, resol_list, output_dir=
     os.makedirs(output_dir, exist_ok=True)
     # Copy the AnnData to avoid modifying the original
     adata_cell = adata_cell_1.copy()
+    print(f"Starting bin calculation for tile {tile_id}")
     # Calculate number of bins based on coordinate ranges and mpp
     x_range = df_trans['x_global_px'].max() - df_trans['x_global_px'].min()
     y_range = df_trans['y_global_px'].max() - df_trans['y_global_px'].min()
     x_n_bin = int(x_range * mpp // 2)
     y_n_bin = int(y_range * mpp // 2)
+    print(f"Starting grouping and normalization for tile {tile_id}")
     # Filter transcripts: assigned to cells and not negative probes
     df_assigned = df_trans[(df_trans['cell_ID']!=0) & ~df_trans['target'].str.contains('NegPrb')]
     # Extract coordinates as numpy arrays
@@ -139,9 +144,9 @@ def process_tile(df_trans, adata_cell_1, alpha, tile_id, resol_list, output_dir=
     df_assigned['array_col'] = np.searchsorted(x_div_arr, x_coord, side='right')
     df_assigned['array_row'] = np.searchsorted(y_div_arr, y_coord, side='right')
     # Group and count transcripts per cell/grid/feature
-    grp = (df_assigned.groupby(['cell_id','array_col','array_row','target'], sort=False).size().reset_index(name='count'))
+    grp = (df_assigned.groupby(['cell_ID','array_col','array_row','target'], sort=False).size().reset_index(name='count'))
     # Normalize counts to fractions per cell
-    cell_tot = grp.groupby('cell_id')['count'].transform('sum')
+    cell_tot = grp.groupby('cell_ID')['count'].transform('sum')
     grp['frac'] = grp['count'] / cell_tot
     # Factorize grid positions and features to integers
     grid_idx, grid_codes = pd.factorize(list(zip(grp.array_col, grp.array_row)), sort=True)
@@ -155,18 +160,18 @@ def process_tile(df_trans, adata_cell_1, alpha, tile_id, resol_list, output_dir=
     # Create grid metadata DataFrame
     idx = [f"{c}_{r}" for c, r in zip(array_cols, array_rows)]
     grid_metadata = pd.DataFrame({'array_col': array_cols, 'array_row': array_rows}, index=idx)
-    # Get unique cell_id per grid, removing duplicates
-    df_cells = (df_assigned[['array_col','array_row','cell_id']].drop_duplicates().drop_duplicates(subset=['array_col','array_row'], keep=False))
+    # Get unique cell_ID per grid, removing duplicates
+    df_cells = (df_assigned[['array_col','array_row','cell_ID']].drop_duplicates().drop_duplicates(subset=['array_col','array_row'], keep=False))
     # Reset index for merging
     gm = grid_metadata.reset_index(drop=True)
     # Merge grid metadata with cell assignments
     merged = gm.merge(df_cells, on=['array_col','array_row'], how='left')
     # Subset to cells present in adata
-    merged_sub = merged[merged['cell_id'].isin(adata_cell.obs_names.tolist())]
+    merged_sub = merged[merged['cell_ID'].isin(adata_cell.obs_names.tolist())]
     # Subset sparse matrix to selected grids
     grid_tx_mtx = grid_tx_count_sparse[merged_sub.index,:]
     # Map positions to cells
-    cell_index_map = merged_sub.groupby('cell_id').indices
+    cell_index_map = merged_sub.groupby('cell_ID').indices
     present_cells = list(cell_index_map.keys())
     adata_cell_sub = adata_cell[present_cells, :].copy()
     cell_ids = adata_cell_sub.obs_names.tolist()
@@ -176,19 +181,22 @@ def process_tile(df_trans, adata_cell_1, alpha, tile_id, resol_list, output_dir=
     groups = [cell_index_map[c] for c in cell_ids]
     # Convert sparse matrix to dense for smoothing
     feats_all = grid_tx_mtx.toarray()
-    labs_all = merged_sub['cell_id'].values
+    labs_all = merged_sub['cell_ID'].values
     coords_np = coords
+    print(f"Applying Gaussian smoothing for tile {tile_id}")
     # Apply Gaussian smoothing per cell
     sm_feats = gaussian_smoothing_per_cell(feats_all, coords_np, labs_all, sigma=sigma)
     # L2 normalize smoothed features
     norms = np.linalg.norm(sm_feats, axis=1, keepdims=True).clip(min=1e-6)
     sm_feats /= norms
+    print(f"Scaling and PCA for gene expression in tile {tile_id}")
     # Scale gene expression data
     sc.pp.scale(adata_cell_sub_, max_value=10)
     # Compute PCA on gene expression
     pca_gene = PCA(n_components=64, random_state=0)
     X_gene = pca_gene.fit_transform(adata_cell_sub_.X)
     adata_cell_sub.obsm['X_pca'] = X_gene
+    print(f"Building graphs for tile {tile_id}")
     # Build PyG Data objects for each cell
     graphs = []
     for ci, pi in enumerate(groups):
@@ -200,6 +208,7 @@ def process_tile(df_trans, adata_cell_1, alpha, tile_id, resol_list, output_dir=
     X_emb = train_gae(graphs, alpha, output_dir, tile_id, batch_size, lr, num_epochs, patience, hid_ch, lat_dim, dropout_p)
     adata_cell_sub.obsm["X_emb"] = X_emb
     print("Final joint shape:", X_emb.shape)
+    print(f"Starting clustering and metrics computation for tile {tile_id}")
     # Clustering and metrics computation
     metrics_list = []
     for label, embed_key in [("concat", "X_emb"), ("gex", "X_pca")]:
@@ -221,10 +230,16 @@ def process_tile(df_trans, adata_cell_1, alpha, tile_id, resol_list, output_dir=
             all_metrics['Alpha'] = alpha
             metrics_list.append(all_metrics)
     # Cleanup
-    del model, train_loader, eval_loader, graphs
-    if torch.cuda.is_available():
-        torch.cuda.empty_cache()
+    del graphs
+    if 'model' in locals():
+        del model
+    if 'train_loader' in locals():
+        del train_loader
+    if 'eval_loader' in locals():
+        del eval_loader
+    torch.cuda.empty_cache() if torch.cuda.is_available() else None
     gc.collect()
+    print(f"Processing complete for tile {tile_id}")
     # Prepare metrics DataFrame
     df_metrics = pd.DataFrame(metrics_list)
     df_metrics = pd.melt(df_metrics, id_vars=['Tile_No', 'Alpha', 'Type', 'Resolution'], var_name='Index', value_name='Value')

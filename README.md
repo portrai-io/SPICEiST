@@ -4,13 +4,23 @@ Graph autoencoder framework that integrates subcellular transcript distribution 
 
 ## Installation
 
-To install the package, navigate to the project root directory (where `setup.py` is located) and run:
+### Using Conda
+
+You can create a Conda environment and install the package from GitHub:
 
 ```bash
-pip install -e .
+conda create -n spiceist python=3.9
+conda activate spiceist
+pip install git+https://github.com/portrai-io/SPICEiST.git
 ```
 
-This will install the `spiceist` package in editable mode, allowing you to make changes to the source code without reinstalling.
+Alternatively, clone the repository and install locally:
+
+```bash
+git clone https://github.com/portrai-io/SPICEiST.git
+cd SPICEiST
+pip install -e .
+```
 
 ### Requirements
 
@@ -49,6 +59,8 @@ import numpy as np
 import pandas as pd
 import scanpy as sc
 from pyarrow import parquet
+from torch.utils.data import DataLoader, random_split
+import torch
 from spiceist import process_tile, create_tiles  # Import from the installed package
 
 # Define paths (replace with actual paths)

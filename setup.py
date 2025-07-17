@@ -17,6 +17,7 @@ setup(
         'networkx',
         'scib',
         'pyarrow',
+        'louvain'
     ],
     author='Sungwoo Bae',
     author_email='sungwoo.bae@portrai.io',
