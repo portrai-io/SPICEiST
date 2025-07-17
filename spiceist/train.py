@@ -11,7 +11,7 @@ from torch_geometric.loader import DataLoader
 from sklearn.decomposition import PCA
 from scipy.sparse import coo_matrix
 from .models import GraphAutoencoder
-from .utils import to_dense_if_sparse, gaussian_smoothing_per_cell, build_edge_index_knn
+from .utils import gaussian_smoothing_per_cell, build_edge_index_knn
 from .metrics import compute_clustering_metrics, compute_assort
 import torch.optim as optim
 
@@ -92,9 +92,9 @@ def train_gae(graphs, alpha, output_dir, tile_id, batch_size=32, lr=1e-3, num_ep
     return X_emb
 
 
-def process_tile(df_trans, adata_cell_1, alpha, tile_id, resol_list, output_dir='./reuslts_xenium', 
-                 mpp=1.0, batch_size=32, lr=1e-3, num_epochs=50, patience=3, hid_ch=128, lat_dim=64, 
-                 dropout_p=0.2, sigma=1.5, knn_k=4, n_neighbors=16):
+def process_tile(df_trans, adata_cell_1, alpha, tile_id, resol_list, output_dir='./results_cosmx_luad', mpp=1.0, 
+                 batch_size=32, lr=1e-3, num_epochs=50, patience=3, hid_ch=128, lat_dim=64, dropout_p=0.2, sigma=1.5, knn_k=4, 
+                 n_neighbors=16, cell_id_col='cell_ID', save_output=True, cell_meta=None):
     """
     Process a single tile: prepare data, train GAE, extract embeddings, perform clustering, compute metrics, save results.
 
@@ -116,6 +116,9 @@ def process_tile(df_trans, adata_cell_1, alpha, tile_id, resol_list, output_dir=
         sigma (float, optional): Sigma for Gaussian smoothing. Defaults to 1.5.
         knn_k (int, optional): K for KNN edges. Defaults to 4.
         n_neighbors (int, optional): Neighbors for clustering. Defaults to 16.
+        cell_id_col (str, optional): Column name for cell IDs in df_trans. Defaults to 'cell_ID'.
+        save_output (bool, optional): Whether to save model and AnnData files. Defaults to True.
+        cell_meta (pd.DataFrame, optional): Metadata DataFrame for cell coordinates. Defaults to None.
 
     Returns:
         pd.DataFrame: Metrics for clustering performance.
@@ -133,7 +136,7 @@ def process_tile(df_trans, adata_cell_1, alpha, tile_id, resol_list, output_dir=
     y_n_bin = int(y_range * mpp // 2)
     print(f"Starting grouping and normalization for tile {tile_id}")
     # Filter transcripts: assigned to cells and not negative probes
-    df_assigned = df_trans[(df_trans['cell_ID']!=0) & ~df_trans['target'].str.contains('NegPrb')]
+    df_assigned = df_trans[(df_trans[cell_id_col]!=0) & ~df_trans['target'].str.contains('NegPrb')]
     # Extract coordinates as numpy arrays
     x_coord = df_assigned['x_global_px'].values
     y_coord = df_assigned['y_global_px'].values
@@ -144,9 +147,9 @@ def process_tile(df_trans, adata_cell_1, alpha, tile_id, resol_list, output_dir=
     df_assigned['array_col'] = np.searchsorted(x_div_arr, x_coord, side='right')
     df_assigned['array_row'] = np.searchsorted(y_div_arr, y_coord, side='right')
     # Group and count transcripts per cell/grid/feature
-    grp = (df_assigned.groupby(['cell_ID','array_col','array_row','target'], sort=False).size().reset_index(name='count'))
+    grp = (df_assigned.groupby([cell_id_col,'array_col','array_row','target'], sort=False).size().reset_index(name='count'))
     # Normalize counts to fractions per cell
-    cell_tot = grp.groupby('cell_ID')['count'].transform('sum')
+    cell_tot = grp.groupby(cell_id_col)['count'].transform('sum')
     grp['frac'] = grp['count'] / cell_tot
     # Factorize grid positions and features to integers
     grid_idx, grid_codes = pd.factorize(list(zip(grp.array_col, grp.array_row)), sort=True)
@@ -161,17 +164,17 @@ def process_tile(df_trans, adata_cell_1, alpha, tile_id, resol_list, output_dir=
     idx = [f"{c}_{r}" for c, r in zip(array_cols, array_rows)]
     grid_metadata = pd.DataFrame({'array_col': array_cols, 'array_row': array_rows}, index=idx)
     # Get unique cell_ID per grid, removing duplicates
-    df_cells = (df_assigned[['array_col','array_row','cell_ID']].drop_duplicates().drop_duplicates(subset=['array_col','array_row'], keep=False))
+    df_cells = (df_assigned[['array_col','array_row',cell_id_col]].drop_duplicates().drop_duplicates(subset=['array_col','array_row'], keep=False))
     # Reset index for merging
     gm = grid_metadata.reset_index(drop=True)
     # Merge grid metadata with cell assignments
     merged = gm.merge(df_cells, on=['array_col','array_row'], how='left')
     # Subset to cells present in adata
-    merged_sub = merged[merged['cell_ID'].isin(adata_cell.obs_names.tolist())]
+    merged_sub = merged[merged[cell_id_col].isin(adata_cell.obs_names.tolist())]
     # Subset sparse matrix to selected grids
     grid_tx_mtx = grid_tx_count_sparse[merged_sub.index,:]
     # Map positions to cells
-    cell_index_map = merged_sub.groupby('cell_ID').indices
+    cell_index_map = merged_sub.groupby(cell_id_col).indices
     present_cells = list(cell_index_map.keys())
     adata_cell_sub = adata_cell[present_cells, :].copy()
     cell_ids = adata_cell_sub.obs_names.tolist()
@@ -181,7 +184,7 @@ def process_tile(df_trans, adata_cell_1, alpha, tile_id, resol_list, output_dir=
     groups = [cell_index_map[c] for c in cell_ids]
     # Convert sparse matrix to dense for smoothing
     feats_all = grid_tx_mtx.toarray()
-    labs_all = merged_sub['cell_ID'].values
+    labs_all = merged_sub[cell_id_col].values
     coords_np = coords
     print(f"Applying Gaussian smoothing for tile {tile_id}")
     # Apply Gaussian smoothing per cell
@@ -205,7 +208,7 @@ def process_tile(df_trans, adata_cell_1, alpha, tile_id, resol_list, output_dir=
         y_vec = torch.from_numpy(X_gene[ci]).float()
         data = Data(x=x_i, edge_index=edge_idx, y=y_vec)
         graphs.append(data)
-    X_emb = train_gae(graphs, alpha, output_dir, tile_id, batch_size, lr, num_epochs, patience, hid_ch, lat_dim, dropout_p)
+    X_emb = train_gae(graphs, alpha, output_dir, tile_id, batch_size, lr, num_epochs, patience, hid_ch, lat_dim, dropout_p, save_output=save_output)
     adata_cell_sub.obsm["X_emb"] = X_emb
     print("Final joint shape:", X_emb.shape)
     print(f"Starting clustering and metrics computation for tile {tile_id}")
@@ -220,9 +223,10 @@ def process_tile(df_trans, adata_cell_1, alpha, tile_id, resol_list, output_dir=
             if len(adata.obs['louvain'].unique()) == 1:
                 print(f"Skipping resolution {resol} due to single cluster")
                 continue
-            adata.write_h5ad(f'{output_dir}/adata_cell_{embed_key}_{tile_id}_{alpha}_{resol}.h5ad')
+            if save_output:
+                adata.write_h5ad(f'{output_dir}/adata_cell_{embed_key}_{tile_id}_{alpha}_{resol}.h5ad')
             clust_metrics = compute_clustering_metrics(adata, embed_key, 'louvain')
-            assort = compute_assort(adata)
+            assort = compute_assort(adata, cell_meta=cell_meta)
             all_metrics = {**clust_metrics, 'Assort': assort}
             all_metrics['Type'] = label
             all_metrics['Resolution'] = resol

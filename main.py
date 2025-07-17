@@ -24,10 +24,12 @@ adata_cell_1.layers["counts"] = adata_cell_1.X.copy()
 sc.pp.normalize_total(adata_cell_1, target_sum=100)
 sc.pp.log1p(adata_cell_1)
 
+# Load cell metadata
+cell_meta = pd.read_csv(os.path.join(path, xenium_prime, 'cells.csv.gz'), compression='gzip')
+
 # Define hyperparameters
 alpha_list = [0.1, 0.5, 1.0]  # Example alphas
 resol_list = [0.3, 0.6, 0.9, 1.2, 1.5, 1.8]  # Resolutions
-mpp = 1.0  # Microns per pixel
 
 # For demonstration, assume data is loaded and proceed with one tile example
 # The following is based on the provided running code, integrated into process_tile usage
@@ -44,7 +46,7 @@ for alpha in alpha_list:
             df_trans = df_trans.rename(columns={'x_location': 'x_global_px', 'y_location': 'y_global_px',
                                                 'cell_id': 'cell_ID', 'feature_name': 'target'})
         # Now call process_tile
-        df_metrics = process_tile(df_trans, adata_cell_1, alpha, i, resol_list, output_dir='./results_prime', mpp=1.0)
+        df_metrics = process_tile(df_trans, adata_cell_1, alpha, i, resol_list, output_dir='./results_prime', cell_meta=cell_meta)
         results.append(df_metrics)
 
 # Combine results
