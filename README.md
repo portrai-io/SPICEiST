@@ -35,6 +35,10 @@ You can install them using:
 pip install -r requirements.txt
 ```
 
+## License
+
+This project is licensed under the Attribution-NonCommercial-NoDerivatives 4.0 International (CC BY-NC-ND 4.0) License - see the [LICENSE](LICENSE.md) file for details.
+
 ## Usage Example
 
 Below is an example script (`main.py`) that demonstrates how to load data, split transcripts into tiles, and process them using the `spiceist` package.
