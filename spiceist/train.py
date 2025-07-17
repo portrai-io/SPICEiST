@@ -208,7 +208,7 @@ def process_tile(df_trans, adata_cell_1, alpha, tile_id, resol_list, output_dir=
         y_vec = torch.from_numpy(X_gene[ci]).float()
         data = Data(x=x_i, edge_index=edge_idx, y=y_vec)
         graphs.append(data)
-    X_emb = train_gae(graphs, alpha, output_dir, tile_id, batch_size, lr, num_epochs, patience, hid_ch, lat_dim, dropout_p, save_output=save_output)
+    X_emb = train_gae(graphs, alpha, output_dir, tile_id, batch_size, lr, num_epochs, patience, hid_ch, lat_dim, dropout_p)
     adata_cell_sub.obsm["X_emb"] = X_emb
     print("Final joint shape:", X_emb.shape)
     print(f"Starting clustering and metrics computation for tile {tile_id}")
